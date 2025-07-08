@@ -1,0 +1,180 @@
+<?php
+
+function dbConnect()
+{
+    $conn = mysqli_connect("localhost", "root", "", "db_kpi_marketing");
+    if (!$conn) {
+        die("Connection failed: " . mysqli_connect_error());
+    }
+
+    return $conn;
+}
+
+function getKpi()
+{
+    $query = "
+    SELECT
+        e.employee_name AS Nama,
+
+        -- Data KPI Sales
+        -- Target_Sales: Ambil kolom 'target' dari table_kpi_types untuk 'Sales'
+        MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.target ELSE 0 END) AS Target_Sales,
+        
+        -- Actual_Sales: Hitung total tugas 'Sales' yang diselesaikan
+        SUM(CASE WHEN tkm.kpi_type_id = 1 THEN 1 ELSE 0 END) AS Actual_Sales,
+
+        -- Pencapaian_Sales: (Actual_Sales / Target_Sales) * 100    
+        COALESCE(
+            CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.target ELSE 0 END) AS DECIMAL), 0) * 100,
+        0) AS Pencapaian_Sales,
+
+        -- Bobot_Sales: (Actual_Sales / Target_Sales) * weight_percentage dari table_kpi_types
+        COALESCE(
+            (CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.target ELSE 0 END) AS DECIMAL), 0)) *
+            MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.weight_percentage ELSE 0 END),
+        0) AS Bobot_Sales,
+
+        -- Late_Sales: Jumlah penalti dari setiap tugas 'Sales' yang terlambat
+        SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN tkt.late_penalty_percentage ELSE 0 END) AS Late_Sales,
+
+        -- Total Bobot (Final KPI): (Bobot_Sales - Late_Sales)
+        (
+            COALESCE(
+                (CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' THEN 1 ELSE 0 END) AS DECIMAL) /
+                NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.target ELSE 0 END) AS DECIMAL), 0)) *
+                MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.weight_percentage ELSE 0 END),
+            0)
+            -
+            SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN tkt.late_penalty_percentage ELSE 0 END)    
+        ) AS Total_Bobot_Sales,
+
+        -- Data KPI Report
+        -- Target_Report: Ambil kolom 'target' dari table_kpi_types untuk 'Report'
+        MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.target ELSE 0 END) AS Target_Report,
+        
+        -- Actual_Report: Hitung total tugas 'Report' yang diselesaikan
+        SUM(CASE WHEN tkm.kpi_type_id = 2 THEN 1 ELSE 0 END) AS Actual_Report,
+
+        -- Pencapaian_Report: (Actual_Report / Target_Report) * 100.
+        COALESCE(
+            CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.target ELSE 0 END) AS DECIMAL), 0) * 100,
+        0) AS Pencapaian_Report,
+
+        -- Bobot_Report: (Actual_Report / Target_Report) * weight_percentage dari table_kpi_types
+        COALESCE(
+            (CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.target ELSE 0 END) AS DECIMAL), 0)) *
+            MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.weight_percentage ELSE 0 END),
+        0) AS Bobot_Report,
+
+        -- Late_Report: Jumlah penalti dari setiap tugas 'Report' yang terlambat
+        SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN tkt.late_penalty_percentage ELSE 0 END) AS Late_Report,
+
+        -- Total Bobot (Final KPI): (Bobot_Report - Late_Report)
+        (
+            COALESCE(
+                (CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' THEN 1 ELSE 0 END) AS DECIMAL) /
+                NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.target ELSE 0 END) AS DECIMAL), 0)) *
+                MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.weight_percentage ELSE 0 END),
+            0)
+            -
+            SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN tkt.late_penalty_percentage ELSE 0 END)    
+        ) AS Total_Bobot_Report,
+
+        -- KPI: Total Bobot Sales + Total Bobot Report
+        (
+            (
+                COALESCE(
+                    (CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' THEN 1 ELSE 0 END) AS DECIMAL) /
+                    NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.target ELSE 0 END) AS DECIMAL), 0)) *
+                    MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.weight_percentage ELSE 0 END),
+                0)
+                -
+                SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN tkt.late_penalty_percentage ELSE 0 END)
+            )
+            +
+            (
+                COALESCE(
+                    (CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' THEN 1 ELSE 0 END) AS DECIMAL) /
+                    NULLIF(CAST(MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.target ELSE 0 END) AS DECIMAL), 0)) *
+                    MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.weight_percentage ELSE 0 END),
+                0)
+                -
+                SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN tkt.late_penalty_percentage ELSE 0 END)
+            )
+        ) AS KPI
+
+    FROM `table_kpi_marketing` tkm
+    JOIN `table_employees` e ON tkm.employee_id = e.id
+    JOIN `table_kpi_types` tkt ON tkm.kpi_type_id = tkt.id
+    GROUP BY e.employee_name, e.id
+    ORDER BY e.id";
+
+    $result = mysqli_query(dbConnect(), $query);
+    $data = mysqli_fetch_all($result, MYSQLI_ASSOC);
+    return $data;
+}
+
+function getPercentage()
+{
+    $query = "
+    SELECT
+        e.employee_name AS Nama,
+
+        -- Data KPI Sales
+        -- Target_Sales: Ambil kolom 'target' dari table_kpi_types untuk 'Sales'
+        MAX(CASE WHEN tkt.kpi_name = 'Sales' THEN tkt.target ELSE 0 END) AS Target_Sales,
+
+        -- Actual_Sales: Hitung total tugas 'Sales' Ontime
+        SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date <= tkm.deadline THEN 1 ELSE 0 END) AS Actual_Sales_Ontime,
+        
+        -- Actual_Sales: Hitung total tugas 'Sales' Late
+        SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN 1 ELSE 0 END) AS Actual_Sales_Late,
+
+        -- Persentase Ontime Sales
+        COALESCE(
+            CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date <= tkm.deadline THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL THEN 1 ELSE 0 END) AS DECIMAL), 0) * 100,
+        0) AS Percentage_Sales_Ontime,
+
+        -- Persentase Late Sales
+        COALESCE(
+            CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(SUM(CASE WHEN tkt.kpi_name = 'Sales' AND tkm.actual_date IS NOT NULL THEN 1 ELSE 0 END) AS DECIMAL), 0) * 100,
+        0) AS Percentage_Sales_Late,
+
+        -- Data KPI Report 
+        -- Target_Report: Ambil kolom 'target' dari table_kpi_types untuk 'Report'
+        MAX(CASE WHEN tkt.kpi_name = 'Report' THEN tkt.target ELSE 0 END) AS Target_Report,
+        
+        -- Actual_Report: Hitung total tugas 'Report' Ontime
+        SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date <= tkm.deadline THEN 1 ELSE 0 END) AS Actual_Report_Ontime,
+        
+        -- Actual_Report: Hitung total tugas 'Report' Late
+        SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN 1 ELSE 0 END) AS Actual_Report_Late,
+
+        -- Persentase Ontime Report
+        COALESCE(
+            CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date <= tkm.deadline THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL THEN 1 ELSE 0 END) AS DECIMAL), 0) * 100,
+        0) AS Percentage_Report_Ontime,
+
+        -- Persentase Late Report
+        COALESCE(
+            CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL AND tkm.actual_date > tkm.deadline THEN 1 ELSE 0 END) AS DECIMAL) /
+            NULLIF(CAST(SUM(CASE WHEN tkt.kpi_name = 'Report' AND tkm.actual_date IS NOT NULL THEN 1 ELSE 0 END) AS DECIMAL), 0) * 100,
+        0) AS Percentage_Report_Late
+
+    FROM `table_kpi_marketing` tkm
+    JOIN `table_employees` e ON tkm.employee_id = e.id
+    JOIN `table_kpi_types` tkt ON tkm.kpi_type_id = tkt.id
+    GROUP BY  e.employee_name, e.id
+    ORDER BY e.id";
+
+    $result = mysqli_query(dbConnect(), $query);
+    $data = mysqli_fetch_all($result, MYSQLI_ASSOC);
+    return $data;
+}
